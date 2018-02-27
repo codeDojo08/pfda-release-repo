@@ -20,8 +20,6 @@ class ComparisonsController < ApplicationController
       per_page: 100,
       include: [:user, {user: :org}, {taggings: :tag}]
     })
-
-    js comparisons_ids_with_descriptions(comparisons)
   end
 
   def fhir_cap
@@ -261,10 +259,8 @@ class ComparisonsController < ApplicationController
 
   def featured
     org = Org.featured
-
     if org
       comparisons = Comparison.accessible_by(@context).includes(:user, :taggings).where(:users => { :org_id => org.id })
-
       @comparisons_grid = initialize_grid(comparisons, {
         name: 'comparisons',
         order: 'comparisons.id',
@@ -272,15 +268,12 @@ class ComparisonsController < ApplicationController
         per_page: 100,
         include: [:user, {user: :org}, {taggings: :tag}]
       })
-
-      js :index, comparisons_ids_with_descriptions(comparisons)
     end
     render :index
   end
 
   def explore
     comparisons = Comparison.accessible_by_public.includes(:taggings)
-
     @comparisons_grid = initialize_grid(comparisons, {
       name: 'comparisons',
       order: 'comparisons.id',
@@ -288,8 +281,6 @@ class ComparisonsController < ApplicationController
       per_page: 100,
       include: [:user, {user: :org}, {taggings: :tag}]
     })
-
-    js :index, comparisons_ids_with_descriptions(comparisons)
     render :index
   end
 
@@ -425,11 +416,16 @@ class ComparisonsController < ApplicationController
 
   def rename
     @comparison = Comparison.editable_by(@context).find_by!(id: params[:id])
-
-    if @comparison.rename(comparison_params[:name], comparison_params[:description], @context)
-      flash[:success] = "Comparison successfully updated"
+    name = comparison_params[:name]
+    if name.is_a?(String) && name != ""
+      if @comparison.rename(name, @context)
+        @comparison.reload
+        flash[:success] = "Comparison renamed to \"#{@comparison.name}\""
+      else
+        flash[:error] = "Comparison \"#{@comparison.name}\" could not be renamed."
+      end
     else
-      flash[:error] = @comparison.errors.messages.values.flatten
+      flash[:error] = "The new name is not a valid string"
     end
 
     redirect_to comparison_path(@comparison.id)
@@ -468,14 +464,10 @@ class ComparisonsController < ApplicationController
 
   private
     def comparison_params
-      params.require(:comparison).permit(:name, :description)
+      params.require(:comparison).permit(:name)
     end
 
     def query_params
       params.permit(:id, :name, :page, :_format)
-    end
-
-    def comparisons_ids_with_descriptions(comparisons)
-      { comparisonsIdsWithDescription: comparisons.select { |comparison| comparison.description.present? }.collect(&:id) }
     end
 end

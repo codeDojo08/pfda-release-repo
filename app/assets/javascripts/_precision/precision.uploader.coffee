@@ -10,23 +10,11 @@ window.Precision.uploader =
 
       @uploadChunks id, fileModel, 1, 0, chunk_size, cb
 
-  uploadImage: (params, cb) ->
-    fileModel = params.fileModel
-    metadata = params.metadata
-    url = params.url || '/api/create_file'
+  uploadImage: (fileModel, metadata, cb) ->
     chunk_size = @getChunkSize(fileModel, 5000000) # 5MB
-    data = _.assign(metadata, { 'name': fileModel.file.name })
-    Precision.api url, data, (uploadData) =>
-      id = uploadData.id
-      fileModel.id(id)
-
-      @uploadChunks id, fileModel, 1, 0, chunk_size, cb
-
-  uploadChallengeResource: (fileModel, metadata, cb) ->
-    chunk_size = @getChunkSize(fileModel, 5497558138880) # 5TB
     params = _.assign(metadata, {'name': fileModel.file.name})
-    Precision.api '/api/create_challenge_resource', params, (res) =>
-      id = res.id
+    Precision.api '/api/create_file', params, (uploadData) =>
+      id = uploadData.id
       fileModel.id(id)
 
       @uploadChunks id, fileModel, 1, 0, chunk_size, cb

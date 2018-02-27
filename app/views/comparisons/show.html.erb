@@ -13,15 +13,17 @@
     <% end %>
     <span class="name"><%= @comparison.name %></span>
     <% if @comparison.editable_by?(@context) %>
-      <a class="pfda-rename-item" data-toggle="modal" data-target="#file-comparison-edit-modal">
+      <a class="pfda-rename-item" data-toggle="modal" data-target="#rename-modal">
         <span class="fa fa-pencil"></span>
       </a>
     <% end %>
   </div>
 
+  <% if !@comparison.description.blank? %>
   <div class="description">
-    <%= comparison_description(@comparison) %>
+    <%= @comparison.description %>
   </div>
+  <% end %>
 </div>
 
 <div class="metadata-section metadata-header">
@@ -45,7 +47,7 @@
     </li>
     <li class="list-group-item">
       <h5 class="list-group-item-heading">Created</h5>
-      <p class="list-group-item-text"><%= @comparison.created_at.to_s(:human) %></p>
+      <p class="list-group-item-text"><%= @comparison.created_at.to_s(:db) %></p>
     </li>
   </ul>
 </div>
@@ -87,8 +89,8 @@
         </button>
         <ul class="dropdown-menu dropdown-menu-right" aria-labelledby="dLabel">
           <li>
-            <a data-toggle='modal' data-target='#file-comparison-edit-modal'>
-              <span class="fa fa-pencil"></span> Edit Comparison info
+            <a data-toggle='modal' data-target='#rename-modal'>
+              <span class="fa fa-pencil"></span> Rename
             </a>
           </li>
           <% if @comparison.deletable? %>
@@ -217,6 +219,7 @@
     <% end %>
   </div>
 
+  <% if @comparison.state == 'done' %>
   <div class="tab-pane" id="tab-outputs">
     <div class="comparison-outputs panel">
       <%= grid(@outputs_grid) do |g|
@@ -231,11 +234,12 @@
         end
 
         g.column name: 'Created', auto_reload: true, filter_type: :standard do |file|
-          file.created_at.to_s(:human)
+          file.created_at.to_s(:db)
         end
       end -%>
     </div>
   </div>
+  <% end %>
 
   <div role="tabpanel" class="tab-pane" id="tab-comments">
     <div class="row">
@@ -265,5 +269,5 @@
 </div>
 
 <% if @comparison.editable_by?(@context) %>
-  <%= render "_partials/modal_file_comparison_edit", item: @comparison, path_to_rename: rename_comparison_path(@comparison.id) %>
+  <%= render "_partials/modal_rename", item: @comparison, path_to_rename: rename_comparison_path(@comparison.id) %>
 <% end %>

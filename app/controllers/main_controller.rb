@@ -99,54 +99,9 @@ class MainController < ApplicationController
         ]
       end
     else
-      @participant_orgs = [
-        # orgs
-        { logo: "participants/23andme.png", name: "23andMe"},
-        { logo: "participants/aha.png", name: "American Heart Association"},
-        { logo: "participants/baylor.png", name: "Baylor College of Medicine"},
-        { logo: "participants/blueprint_genetics.png", name: "Blueprint Genetics"},
-        { logo: "participants/broad.png", name: "Broad Institute"},
-        { logo: "participants/cdc.png", name: "Centers for Disease Control and Prevention"},
-        { logo: "participants/counsyl.png", name: "Counsyl"},
-        { logo: "participants/crystal_genetics.png", name: "Crystal Genetics"},
-        { logo: "participants/dnanexus.png", name: "DNAnexus"},
-        { logo: "participants/edico.png", name: "Edico Genome"},
-        { logo: "participants/emory.png", name: "Emory Genetics Lab"},
-        { logo: "participants/garvan.png", name: "Garvan"},
-        { logo: "participants/genedx.png", name: "GeneDx"},
-        { logo: "participants/humanlongevity.png", name: "Human Longevity Inc."},
-        { logo: "participants/illumina.png", name: "Illumina"},
-        { logo: "participants/intel.png", name: "Intel"},
-        { logo: "participants/macrogen.png", name: "Macrogen"},
-        { logo: "participants/natera.png", name: "Natera"},
-        { logo: "participants/nist.png", name: "NIST"},
-        { logo: "participants/nih.png", name: "NIH"},
-        { logo: "participants/ostp.png", name: "White House Office of Science and Technology Policy"},
-        { logo: "participants/personalis.png", name: "Personalis"},
-        { logo: "participants/pharmgkb.png", name: "PharmGKB"},
-        { logo: "participants/qiagen.png", name: "Qiagen"},
-        { logo: "participants/roche.png", name: "Roche"},
-        { logo: "participants/sequenom.png", name: "Sequenom"},
-        { logo: "participants/seracare.png", name: "Seracare"},
-        { logo: "participants/us-house-of-representatives.png", name: "US House of Representatives"}
-      ]
-
-      @participants =  [
-        # individuals
-        { logo: "participants/russ_altman.jpg", name: "Dr. Russ Altman", classes: "img-circle"},
-        { logo: "participants/euan_ashley.jpg", name: "Dr. Euan Ashley", classes: "img-circle"},
-        { logo: "participants/lester_carter.jpg", name: "Dr. Lester Carter", classes: "img-circle"},
-        { logo: "participants/rachel_goldfeder.png", name: "Rachel Goldfeder", classes: "img-circle"},
-        { logo: "participants/teri_klein.jpg", name: "Dr. Teri Klein", classes: "img-circle"},
-        { logo: "participants/hans_nelsen.jpg", name: "Hans Nelsen", classes: "img-circle"},
-        { logo: "participants/snehit_prabhu.jpg", name: "Dr. Snehit Prabhu", classes: "img-circle"},
-        { logo: "participants/dennis_wall.jpg", name: "Dr. Dennis P. Wall", classes: "img-circle"},
-        { logo: "participants/mark_woon.jpg", name: "Mark Woon", classes: "img-circle"},
-        { logo: "participants/mark_wright.jpg", name: "Dr. Mark Wright", classes: "img-circle"},
-        { logo: "participants/peter_tonellato.jpg", name: "Dr. Peter Tonellato", classes: "img-circle"}
-      ]
-
+      @participant_orgs = [ ]
       @participant_orgs = @participant_orgs.shuffle
+      @participants = [ ]
       @participants = @participants.shuffle
     end
 
@@ -303,7 +258,6 @@ class MainController < ApplicationController
           end
           user.last_login = Time.now
           user.save!
-          set_time_zone(user)
         end
       else
         User.transaction do
@@ -314,7 +268,6 @@ class MainController < ApplicationController
       end
       save_session(user.id, username, token, expiration_time, user.org_id)
       AUDIT_LOGGER.info("User #{username} logged in")
-      Event::UserLoggedIn.create(user)
       redirect_to root_url
     end
   end
@@ -337,7 +290,6 @@ class MainController < ApplicationController
           AUDIT_LOGGER.info("Access requested: #{p.to_json}")
           NotificationsMailer.invitation_email(@invitation).deliver_now!
           NotificationsMailer.guest_access_email(@invitation).deliver_now!
-          Event::UserAccessRequested.create(@invitation)
         end
       end
     end
@@ -488,9 +440,9 @@ class MainController < ApplicationController
       return
     end
 
-    js graph: graph_decorator.for_publisher(item, scope),
-       space: space.nil? ? nil : space.slice(:uid, :title),
-       scope_to_publish_to: scope
+    graph = get_graph(item)
+
+    js graph: publisher_js_prepare(graph, scope), space: !space.nil? ? space.slice(:uid, :title) : nil, scope_to_publish_to: scope
   end
 
   def track
@@ -502,7 +454,7 @@ class MainController < ApplicationController
       redirect_to :root
       return
     end
-    @graph = graph_decorator.for_track(@item)
+    @graph = get_graph(@item)
   end
 
   def tokify
@@ -544,14 +496,77 @@ class MainController < ApplicationController
 
   private
 
-  def graph_decorator
-    @graph_decorator ||= GraphDecorator.new(@context)
+  def get_graph(root)
+    klass = root.klass
+    if klass == "asset"
+      klass = "file"
+    elsif klass == "answer"
+      klass = "note"
+    elsif klass == "discussion"
+      klass = "note"
+    end
+
+    self.send("get_subgraph_of_#{klass}", root)
   end
 
-  def set_time_zone(user)
-    return if user.time_zone.present?
-    return if cookies[:user_time_zone].blank?
+  def get_subgraph_of_job(job)
+    if job.accessible_by?(@context)
+      return [job, [get_subgraph_of_app(job.app)] + job.input_files.map { |file| get_subgraph_of_file(file) }]
+    else
+      return [job, []]
+    end
+  end
 
-    user.update_time_zone(cookies[:user_time_zone])
+  def get_subgraph_of_app(app)
+    if app.accessible_by?(@context)
+      return [app, app.assets.map { |asset| get_subgraph_of_file(asset) }]
+    else
+      return [app, []]
+    end
+  end
+
+  def get_subgraph_of_file(file)
+    if file.accessible_by?(@context)
+      if file.parent_type == "Job"
+        return [file, [get_subgraph_of_job(file.parent)]]
+      elsif file.parent_type == "Comparison"
+        return [file, [get_subgraph_of_comparison(file.parent)]]
+      else #Asset or user-uploaded file
+        return [file, []]
+      end
+    else
+      return [file, []]
+    end
+  end
+
+  def get_subgraph_of_comparison(comparison)
+    if comparison.accessible_by?(@context)
+      return [comparison, comparison.user_files.map { |file| get_subgraph_of_file(file) }]
+    else
+      return [comparison, []]
+    end
+  end
+
+  def get_subgraph_of_note(note)
+    if note.accessible_by?(@context)
+      return [note, note.attachments.map { |attachment|
+        self.send("get_subgraph_of_#{attachment.item_type.downcase.sub(/^user/, '')}", attachment.item)
+      }]
+    else
+      return [note, []]
+    end
+  end
+
+  def publisher_js_prepare(node, scope = 'public')
+    item = node[0].slice(:uid, :klass)
+    item[:title] = node[0].accessible_by?(@context) ? node[0].title : node[0].uid
+    item[:owned] = node[0].editable_by?(@context)
+    item[:public] = node[0].public?
+    item[:in_space] = node[0].in_space?
+    item[:publishable] = node[0].publishable_by?(@context, scope)
+
+    children = node[1].map { |child| publisher_js_prepare(child, scope) }
+
+    return [item, children]
   end
 end

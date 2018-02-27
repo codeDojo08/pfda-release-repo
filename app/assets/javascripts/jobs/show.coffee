@@ -1,7 +1,3 @@
-class JobViewModel
-  constructor: (desc) ->
-    @descriptionDisplay = Precision.md.render(desc)
-
 #########################################################
 #
 #
@@ -15,7 +11,7 @@ JobsController = Paloma.controller('Jobs',
     $container = $("body main")
     viewModel = {
       noteAttachModel: new Precision.models.NoteAttachModel(@params.id, 'Job')
-      jobViewModel: new JobViewModel(@params.desc)
     }
+
     ko.applyBindings(viewModel, $container[0])
 )

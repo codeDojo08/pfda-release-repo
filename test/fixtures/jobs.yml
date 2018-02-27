@@ -16,7 +16,6 @@
 #  updated_at    :datetime         not null
 #  app_series_id :integer
 #  scope         :string
-#  analysis_id   :integer
 #
 
 # Read about fixtures at http://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html

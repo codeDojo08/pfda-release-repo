@@ -97,7 +97,7 @@ class ExpertsEditView
 
       do (fileModel) =>
         fileModel.state("UPLOADING")
-        Precision.uploader.uploadImage({ fileModel: fileModel, metadata: metadata }, () =>
+        Precision.uploader.uploadImage(fileModel, metadata, () =>
           @getFileLink(fileModel, doneFn)
         )
 
