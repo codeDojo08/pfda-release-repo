@@ -2,7 +2,7 @@ class ChallengesController < ApplicationController
   skip_before_action :require_login, {only: [:index, :consistency, :truth, :appathons, :join, :show]}
   before_action :require_login_or_guest, only: []
   before_action :check_on_challenge_admin, only: %i(new create)
-  before_action :find_editable_challenge, only: %i(edit update edit_page save_page announce_result)
+  before_action :find_editable_challenge, only: %i(edit update edit_page announce_result)
 
   helper_method :app_owners_for_select
 
@@ -26,8 +26,8 @@ class ChallengesController < ApplicationController
         @challenge.update_card_image_url!
         redirect_to challenge_path(@challenge)
       else
-        render action: :new
         js challenge_params
+        render action: :new
       end
     end
   end
@@ -43,8 +43,8 @@ class ChallengesController < ApplicationController
         flash[:success] = "The challenge was updated successfully."
         redirect_to challenge_path(@challenge)
       else
-        render action: :edit
         js update_challenge_params
+        render action: :edit
       end
     end
   end
@@ -78,7 +78,7 @@ class ChallengesController < ApplicationController
       else
         flash.now[:error] = "The specified app could not be assigned to the current challenge: #{challenge.name} due to an internal error."
       end
-      redirect_to app_jobs_path(app.dxid)
+      redirect_to app_jobs_path(app)
     else
       flash[:error] = "The specified app was not found and could not be assigned to the current challenge: #{challenge.name}."
       redirect_to apps_path
@@ -96,7 +96,7 @@ class ChallengesController < ApplicationController
 
     if !challenge.followed_by?(@context.user)
       @context.user.follow(challenge)
-      Event::SignedUpForChallenge.create(challenge, @context.user)
+      Event::SignedUpForChallenge.create_for(challenge, @context.user)
       flash[:success] = "You are now following the challenge! If you would like to participate please submit an entry by the deadline."
     else
       flash[:success] = "You are already following the challenge! Remember to submit your entries by the challenge deadline!"
@@ -119,17 +119,6 @@ class ChallengesController < ApplicationController
     js challenge: @challenge.slice(:id)
   end
 
-  def save_page
-    return if params[:regions].blank?
-
-    @challenge.regions = @challenge.regions.merge(params[:regions])
-
-    if @challenge.save
-      render json: { msg: "saved" }
-    else
-      render json: { errors: @challenge.errors.full_messages.join(", ") }
-    end
-  end
 
   def show
     @challenge = Challenge.find_by(id: params[:id])
@@ -153,6 +142,11 @@ class ChallengesController < ApplicationController
     when "submissions"
       @submissions = @challenge.submissions.accessible_by_public
     when "results"
+      unless @challenge.can_show_results?(@context)
+        redirect_to challenges_path
+        return
+      end
+
       @submissions = @challenge.submissions.accessible_by_public
       if @challenge.automated?
         @results = @challenge.completed_submissions
@@ -279,7 +273,7 @@ class ChallengesController < ApplicationController
   end
 
   def app_owners_for_select
-    @app_owners_candidates = User.not_challenge_bot.map{ |u| [u.select_text, u.id] }
+    @app_owners_candidates = User.real.map { |u| [u.select_text, u.id] }
   end
 
   def find_editable_challenge
@@ -295,19 +289,20 @@ class ChallengesController < ApplicationController
   end
 
   def challenge_params
-    p = params.require(:challenge).permit(:name, :description, :app_owner_id, :start_at, :end_at, :status, :regions, :card_image_id)
-    p.require(:name)
-    p.require(:start_at)
-    p.require(:end_at)
-    return p
+    params.require(:challenge)
+      .permit(
+        :name, :description, :app_owner_id, :start_at, :end_at, :status,
+        :regions, :card_image_id, :card_image_url
+      )
+
   end
 
   def update_challenge_params
-    p = params.require(:challenge).permit(:name, :description, :app_owner_id, :start_at, :end_at, :status, :card_image_id)
-    p.require(:name)
-    p.require(:start_at)
-    p.require(:end_at)
-    return p
+    params.require(:challenge)
+      .permit(
+        :name, :description, :app_owner_id, :start_at, :end_at, :status,
+        :card_image_id, :card_image_url
+      )
   end
 
   def filter_and_order_state_as_hash(grid)

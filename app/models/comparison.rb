@@ -16,6 +16,7 @@
 #
 
 class Comparison < ActiveRecord::Base
+  include Auditor
   include Permissions
 
   DESCRIPTION_MAX_LENGTH = 1000
@@ -95,11 +96,11 @@ class Comparison < ActiveRecord::Base
     update_attributes(name: new_name, description: description)
   end
 
-  def self.publication_project!(user, scope)
+  def self.publication_project!(context, scope)
     if scope == "public"
-      user.public_comparisons_project
+      context.user.public_comparisons_project
     else
-      Space.from_scope(scope).project_for_user!(user)
+      Space.from_scope(scope).project_for_user!(context.user)
     end
   end
 
@@ -120,7 +121,7 @@ class Comparison < ActiveRecord::Base
       next unless comparison.publishable_by?(context, scope)
       comparisons_to_publish << comparison
       comparison.outputs.flatten.each do |file|
-        raise "Consistency check failure for file #{file.id} (#{file.dxid})" unless file.passes_consistency_check?(context)
+        raise "Consistency check failure for file #{file.id} (#{file.dxid})" unless file.passes_consistency_check?(context.user)
         raise "Source and destination collision for file #{file.id} (#{file.dxid})" if destination_project == file.project
         projects[file.project] = [] unless projects.has_key?(file.project)
         projects[file.project].push(file)
@@ -140,6 +141,9 @@ class Comparison < ActiveRecord::Base
         end
         comparison.update!(scope: scope)
         count += 1
+        if scope =~ /^space-(\d+)$/
+          SpaceEventService.call($1.to_i, context.user_id, nil, comparison, :comparison_added)
+        end
       end
     end
 
@@ -149,4 +153,9 @@ class Comparison < ActiveRecord::Base
 
     return count
   end
+
+  def copyable_to_cooperative?
+    in_confidential_space?
+  end
+
 end

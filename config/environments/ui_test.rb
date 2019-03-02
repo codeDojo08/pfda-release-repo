@@ -26,7 +26,7 @@ Rails.application.configure do
   config.assets.digest = true
 
   config.action_mailer.delivery_method = :test
-  config.action_mailer.default_url_options = { host: "localhost", port: 3000 }
+  config.action_mailer.default_url_options = { host: "localhost", port: 3000, protocol: 'https' }
   config.action_mailer.default_options = { from: "test@pfda" }
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
@@ -39,11 +39,16 @@ Rails.application.configure do
   # Do not dump schema after migrations.
   config.active_record.dump_schema_after_migration = false
 
+  config.active_record.migration_error = :page_load
+
   # SSL
   config.force_ssl = true
 
-  STDOUT.sync = true
-  logger           = ActiveSupport::Logger.new(STDOUT)
-  logger.formatter = config.log_formatter
-  config.logger = ActiveSupport::TaggedLogging.new(logger)
+  if ENV['RAILS_LOG_TO_STDOUT']
+    STDOUT.sync = true
+    logger           = ActiveSupport::Logger.new(STDOUT)
+    logger.formatter = config.log_formatter
+    config.logger = ActiveSupport::TaggedLogging.new(logger)
+  end
+
 end

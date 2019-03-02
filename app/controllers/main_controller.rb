@@ -1,7 +1,7 @@
 class MainController < ApplicationController
-  skip_before_action :require_login, {only: [:index, :about, :exception_test, :login, :return_from_login, :request_access, :terms, :guidelines, :browse_access, :destroy, :presskit, :news]}
+  skip_before_action :require_login, {only: [:index, :about, :exception_test, :login, :return_from_login, :request_access, :terms, :guidelines, :browse_access, :destroy, :presskit, :news, :mislabeling]}
 
-  skip_before_action :require_login,     only: [:track]
+  skip_before_action :require_login,     only: [:track, :mislabeling]
   before_action :require_login_or_guest, only: [:track]
 
   def index
@@ -17,23 +17,17 @@ class MainController < ApplicationController
 
     @experts = Expert.public.order(created_at: :desc).limit(10) # TODO: filter by published ones only
 
+    @news_items = NewsItem.published.positioned
+
     @meta_appathon = MetaAppathon.active
-    if !@meta_appathon.nil?
+    if @meta_appathon.present?
       if @context.logged_in?
         @user_appathon = @context.user.appathon_from_meta(@meta_appathon)
       end
     end
 
     if @context.logged_in_or_guest?
-      notes = Note.real_notes.accessible_by_public.order(updated_at: :desc).limit(10)
-      answers = Answer.accessible_by_public.order(updated_at: :desc).limit(10)
-      discussions = Discussion.accessible_by_public.order(updated_at: :desc).limit(10)
-      files = UserFile.real_files.accessible_by_public.order(updated_at: :desc).limit(10)
-      comparisons = Comparison.accessible_by_public.order(updated_at: :desc).limit(10)
-      apps = App.accessible_by_public.order(updated_at: :desc).limit(10)
-      assets = Asset.accessible_by_public.order(updated_at: :desc).limit(10)
-
-      @feed = (notes + answers + discussions + files + comparisons + apps + assets).sort_by {|a| a.updated_at}.reverse
+      @feed = collect_feed
 
       if @context.logged_in?
         @notes_count = Note.real_notes.editable_by(@context).count
@@ -99,64 +93,21 @@ class MainController < ApplicationController
         ]
       end
     else
-      @participant_orgs = [
-        # orgs
-        { logo: "participants/23andme.png", name: "23andMe"},
-        { logo: "participants/aha.png", name: "American Heart Association"},
-        { logo: "participants/baylor.png", name: "Baylor College of Medicine"},
-        { logo: "participants/blueprint_genetics.png", name: "Blueprint Genetics"},
-        { logo: "participants/broad.png", name: "Broad Institute"},
-        { logo: "participants/cdc.png", name: "Centers for Disease Control and Prevention"},
-        { logo: "participants/counsyl.png", name: "Counsyl"},
-        { logo: "participants/crystal_genetics.png", name: "Crystal Genetics"},
-        { logo: "participants/dnanexus.png", name: "DNAnexus"},
-        { logo: "participants/edico.png", name: "Edico Genome"},
-        { logo: "participants/emory.png", name: "Emory Genetics Lab"},
-        { logo: "participants/garvan.png", name: "Garvan"},
-        { logo: "participants/genedx.png", name: "GeneDx"},
-        { logo: "participants/humanlongevity.png", name: "Human Longevity Inc."},
-        { logo: "participants/illumina.png", name: "Illumina"},
-        { logo: "participants/intel.png", name: "Intel"},
-        { logo: "participants/macrogen.png", name: "Macrogen"},
-        { logo: "participants/natera.png", name: "Natera"},
-        { logo: "participants/nist.png", name: "NIST"},
-        { logo: "participants/nih.png", name: "NIH"},
-        { logo: "participants/ostp.png", name: "White House Office of Science and Technology Policy"},
-        { logo: "participants/personalis.png", name: "Personalis"},
-        { logo: "participants/pharmgkb.png", name: "PharmGKB"},
-        { logo: "participants/qiagen.png", name: "Qiagen"},
-        { logo: "participants/roche.png", name: "Roche"},
-        { logo: "participants/sequenom.png", name: "Sequenom"},
-        { logo: "participants/seracare.png", name: "Seracare"},
-        { logo: "participants/us-house-of-representatives.png", name: "US House of Representatives"}
-      ]
-
-      @participants =  [
-        # individuals
-        { logo: "participants/russ_altman.jpg", name: "Dr. Russ Altman", classes: "img-circle"},
-        { logo: "participants/euan_ashley.jpg", name: "Dr. Euan Ashley", classes: "img-circle"},
-        { logo: "participants/lester_carter.jpg", name: "Dr. Lester Carter", classes: "img-circle"},
-        { logo: "participants/rachel_goldfeder.png", name: "Rachel Goldfeder", classes: "img-circle"},
-        { logo: "participants/teri_klein.jpg", name: "Dr. Teri Klein", classes: "img-circle"},
-        { logo: "participants/hans_nelsen.jpg", name: "Hans Nelsen", classes: "img-circle"},
-        { logo: "participants/snehit_prabhu.jpg", name: "Dr. Snehit Prabhu", classes: "img-circle"},
-        { logo: "participants/dennis_wall.jpg", name: "Dr. Dennis P. Wall", classes: "img-circle"},
-        { logo: "participants/mark_woon.jpg", name: "Mark Woon", classes: "img-circle"},
-        { logo: "participants/mark_wright.jpg", name: "Dr. Mark Wright", classes: "img-circle"},
-        { logo: "participants/peter_tonellato.jpg", name: "Dr. Peter Tonellato", classes: "img-circle"}
-      ]
-
-      @participant_orgs = @participant_orgs.shuffle
-      @participants = @participants.shuffle
+      @participant_orgs = Participant.org.positioned
+      @participants = Participant.person.positioned
     end
+
+    @get_started_boxes = GetStartedBox.visible.positioned
 
     js show_guidelines: show_guidelines
   end
 
   def destroy
     if @context.logged_in?
-      AUDIT_LOGGER.info("User #{session[:username]} logged out")
+      Auditor.perform_audit({ action: "destroy", record_type: "Session", record: { message: "User #{session[:username]} logged out" } })
     end
+
+    Session.where(key: session.id).delete_all
     reset_session
     flash[:success] = "You were successfully logged out of precisionFDA"
     redirect_to root_url
@@ -169,6 +120,7 @@ class MainController < ApplicationController
   end
 
   def news
+    @news_items = NewsItem.positioned.published
   end
 
   def presskit
@@ -237,17 +189,26 @@ class MainController < ApplicationController
     if @context.guest?
       render "_partials/_error", status: 403, locals: {message: "You are currently browsing precisionFDA as a guest. To log in and complete this action, you need a user account. Contact precisionfda@fda.hhs.gov if you need to upgrade to a user account with contributor-level access."}
     else
-      redirect_to "#{DNANEXUS_AUTHSERVER_URI}oauth2/authorize?response_type=code&client_id=#{OAUTH2_CLIENT_ID}&redirect_uri=#{URI.encode(OAUTH2_REDIRECT_URI)}"
+      redirect_to "#{DNANEXUS_AUTHSERVER_URI}oauth2/authorize?response_type=code&client_id=#{OAUTH2_CLIENT_ID}&redirect_uri=#{URI.encode_www_form_component(OAUTH2_REDIRECT_URI)}"
     end
   end
 
   def return_from_login
     # Ensure we were sent here from DNAnexus
-    raise unless params[:code].present? && params[:code].is_a?(String)
+    if params[:code].blank? || !params[:code].is_a?(String)
+      redirect_to(root_url) and return
+    end
 
     # Exchange the code for a token
-    result = DNAnexusAuth.new(DNANEXUS_AUTHSERVER_URI).post_form("oauth2/token", {grant_type: "authorization_code", code: params[:code], redirect_uri: OAUTH2_REDIRECT_URI, client_id: OAUTH2_CLIENT_ID})
-    raise unless result["access_token"].present? && result["token_type"] == "bearer"
+    result = DNAnexusAuth.new(DNANEXUS_AUTHSERVER_URI).
+               fetch_token(params[:code])
+
+    if result["access_token"].blank? ||
+       result["token_type"] != "bearer"
+
+      redirect_to(root_url) and return
+    end
+
     token = result["access_token"]
 
     # Extract username
@@ -255,42 +216,50 @@ class MainController < ApplicationController
     raise unless full_username.start_with?("user-")
     username = full_username[/^user-(.+)$/, 1]
 
+    # Prepare data for Audit log
+    Auditor.current_user = AuditLogUser.new(username, request.remote_ip)
+
     # Extract expiration date
     expiration_duration = result["expires_in"].to_i
     expiration_time = Time.now.to_i + expiration_duration
 
     user = User.find_by(dxuser: username)
     if user.nil?
-      AUDIT_LOGGER.info("User #{username} attempted to log in from an existing DNAnexus account")
-      render "_partials/_error", status: 403, locals: {message: "ERROR: You cannot use an existing DNAnexus account (#{username}) to log into precisionFDA. You need to apply for and obtain a separate precisionFDA account."}
+      log_session("User #{username} attempted to log in from an existing DNAnexus account")
+
+      render "_partials/_error", status: 403, locals: { message: "ERROR: You cannot use an existing DNAnexus account (#{username}) to log into precisionFDA. You need to apply for and obtain a separate precisionFDA account." }
     else
       if user.last_login.nil? && user.private_files_project.nil?
         api = DNAnexusAPI.new(token)
-        AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 1 of 9 completed")
+
+        log_session("User #{username} is logging in for the first time; account setup step 1 of 9 completed")
 
         # Private files
         private_files_project = api.call("project", "new", {name: "precisionfda-personal-files-#{username}", billTo: user.billto})["id"]
-        AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 2 of 9 completed")
+
+        log_session("User #{username} is logging in for the first time; account setup step 2 of 9 completed")
 
         # Private comparisons
         private_comparisons_project = api.call("project", "new", {name: "precisionfda-personal-comparisons-#{username}", billTo: user.billto})["id"]
-        AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 3 of 9 completed")
+
+        log_session("User #{username} is logging in for the first time; account setup step 3 of 9 completed")
 
         # Public files
         public_files_project = api.call("project", "new", {name: "precisionfda-public-files-#{username}", billTo: user.billto})["id"]
-        AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 4 of 9 completed")
+        log_session("User #{username} is logging in for the first time; account setup step 4 of 9 completed")
         api.call(public_files_project, "invite", {invitee: ORG_EVERYONE, level: "VIEW", suppressEmailNotification: true, suppressAllNotifications: true})
-        AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 5 of 9 completed")
+        log_session("User #{username} is logging in for the first time; account setup step 5 of 9 completed")
 
         # Public comparisons
         public_comparisons_project = api.call("project", "new", {name: "precisionfda-public-comparisons-#{username}", billTo: user.billto})["id"]
-        AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 6 of 9 completed")
+        log_session("User #{username} is logging in for the first time; account setup step 6 of 9 completed")
+
         api.call(public_comparisons_project, "invite", {invitee: ORG_EVERYONE, level: "VIEW", suppressEmailNotification: true, suppressAllNotifications: true})
-        AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 7 of 9 completed")
+        log_session("User #{username} is logging in for the first time; account setup step 7 of 9 completed")
 
         # User settings
         api.call(full_username, "update", {policies: {emailWhenJobComplete: "never"}})
-        AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 8 of 9 completed")
+        log_session("User #{username} is logging in for the first time; account setup step 8 of 9 completed")
 
         User.transaction do
           user.reload
@@ -299,7 +268,7 @@ class MainController < ApplicationController
             user.private_comparisons_project = private_comparisons_project
             user.public_files_project = public_files_project
             user.public_comparisons_project = public_comparisons_project
-            AUDIT_LOGGER.info("User #{username} is logging in for the first time; account setup step 9 of 9 completed")
+            log_session("User #{username} is logging in for the first time; account setup step 9 of 9 completed")
           end
           user.last_login = Time.now
           user.save!
@@ -312,9 +281,19 @@ class MainController < ApplicationController
           user.save!
         end
       end
-      save_session(user.id, username, token, expiration_time, user.org_id)
-      AUDIT_LOGGER.info("User #{username} logged in")
-      Event::UserLoggedIn.create(user)
+
+      Session.delete_expired
+
+      if Session.limit_reached?(user)
+        flash[:error] = "You have reached a limit for login. You can use only #{SESSIONS_LIMIT} active sessions."
+      else
+        Session.where(key: session.id).delete_all
+        reset_session
+        save_session(user.id, username, token, expiration_time, user.org_id)
+        log_session("User #{username} logged in")
+        Event::UserLoggedIn.create_for(user)
+      end
+
       redirect_to root_url
     end
   end
@@ -334,10 +313,17 @@ class MainController < ApplicationController
       Invitation.transaction do
         @invitation = Invitation.create(p)
         if @invitation.persisted?
-          AUDIT_LOGGER.info("Access requested: #{p.to_json}")
+          auditor_data = {
+            action: "create",
+            record_type: "Access Request",
+            record: {
+              message: "Access requested: #{p.to_json}"
+            }
+          }
+          Auditor.perform_audit(auditor_data)
           NotificationsMailer.invitation_email(@invitation).deliver_now!
           NotificationsMailer.guest_access_email(@invitation).deliver_now!
-          Event::UserAccessRequested.create(@invitation)
+          Event::UserAccessRequested.create_for(@invitation)
         end
       end
     end
@@ -363,7 +349,14 @@ class MainController < ApplicationController
 
     if request.post?
       save_session(-1, "Guest-#{@invitation.id}", "INVALID", @invitation.expires_at.to_i, -1)
-      AUDIT_LOGGER.info("Browse access granted for #{@invitation.email} (id #{@invitation.id})")
+      auditor_data = {
+        action: "create",
+        record_type: "Access Request",
+        record: {
+          message: "Browse access granted for #{@invitation.email} (id #{@invitation.id})"
+        }
+      }
+      Auditor.perform_audit(auditor_data)
       redirect_to root_url
     end
   end
@@ -419,6 +412,9 @@ class MainController < ApplicationController
       # Answers
       answers = items.select { |item| item.klass == "answer" }
 
+      # Workflows
+      workflows = items.select { |item| item.klass == "workflow" }
+
       published_count = 0
 
       # Files
@@ -456,6 +452,11 @@ class MainController < ApplicationController
         published_count += Answer.publish(answers, @context, scope)
       end
 
+      if workflows.any?
+        PublishService::WorkflowPublisher.call(workflows, @context, scope)
+        published_count += workflows.count
+      end
+
       message = "#{published_count}"
       if published_count != items.count
         message += " (out of #{items.count})"
@@ -488,21 +489,25 @@ class MainController < ApplicationController
       return
     end
 
-    js graph: graph_decorator.for_publisher(item, scope),
+    js graph: GraphDecorator.for_publisher(@context, item, scope),
        space: space.nil? ? nil : space.slice(:uid, :title),
-       scope_to_publish_to: scope
+       scope_to_publish_to: scope, message: t('main.publish.apps_notification')
   end
 
   def track
     id = params[:id]
     raise "Missing id in track route" unless id.is_a?(String) && id.present?
     @item = item_from_uid(id)
-    if !@item.accessible_by?(@context)
+    unless @item.accessible_by?(@context)
       flash[:error] = "This item is not accessible by you"
       redirect_to :root
       return
     end
-    @graph = graph_decorator.for_track(@item)
+    @graph = GraphDecorator.build(@context, @item)
+  end
+
+  def mislabeling
+
   end
 
   def tokify
@@ -544,8 +549,10 @@ class MainController < ApplicationController
 
   private
 
-  def graph_decorator
-    @graph_decorator ||= GraphDecorator.new(@context)
+  def collect_feed
+    [Note, Answer, Discussion, UserFile, Comparison, App, Asset].map do |klass|
+      klass.where(user: User.real).accessible_by_public.order(updated_at: :desc).limit(4)
+    end.sum.sort_by(&:updated_at).reverse
   end
 
   def set_time_zone(user)
@@ -553,5 +560,16 @@ class MainController < ApplicationController
     return if cookies[:user_time_zone].blank?
 
     user.update_time_zone(cookies[:user_time_zone])
+  end
+
+  def log_session(message)
+    data = {
+      action: "create",
+      record_type: "Session",
+      record: {
+        message: message
+      }
+    }
+    Auditor.perform_audit(data)
   end
 end

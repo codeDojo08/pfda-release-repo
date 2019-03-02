@@ -1,17 +1,25 @@
 Job.transaction do
   challenge_id = ARGV[0]            # runner provides challenge_id
   CHALLENGE_TOKEN = ARGV[1]         # runner provides token
-  file_id = ARGV[2]                 # runner provides file_id (dxid)
-
-  file = UserFile.find_by!(dxid: file_id)
-  user_id = file.user_id
-  name = "TBD"
-  desc = "TBD"
-  inputs = {"entry_vcf" => file_id}       # Please verify
+  name = ARGV[2]                    # runner provide submission name
+  desc = ARGV[3]                    # runner provides submission description
+  file_inputs = ARGV[4..-1]         # runner provides one or more input_name=file pairs
+  
+  inputs = {}
+  user_id = nil
   run_inputs = {}
   input_file_dxids = []
   dx_run_input = {}
-
+  
+  file_inputs.each do |file_input|
+    key, file_id = file_input.split("=")
+    inputs[key] = file_id
+    if user_id.nil?
+      file = UserFile.find_by!(dxid: file_id)
+      user_id = file.user_id
+    end
+  end
+  
   challenge = Challenge.find_by!(id: challenge_id)
   @app = App.find(challenge.app_id)
   @app.input_spec.each do |input|
@@ -60,7 +68,7 @@ Job.transaction do
     dx_run_input[key] = dxvalue || value
   end
 
-  challenge_bot = User.find_by!(dxuser: CHALLENGE_BOT_DX_USER)
+  challenge_bot = User.challenge_bot
   project = challenge_bot.private_files_project
 
   api_input = {
@@ -106,7 +114,7 @@ Job.transaction do
     job = Job.create!(opts)
     job.input_file_ids = input_file_ids
     job.save!
-    Event::JobRun.create(job, challenge_bot)
+    Event::JobRun.create_for(job, challenge_bot)
   end
 
   # create submission record

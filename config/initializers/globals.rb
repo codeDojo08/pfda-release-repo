@@ -7,8 +7,7 @@ if Rails.env.development?
   OAUTH2_REDIRECT_URI = "https://localhost:3000/return_from_login"
   OAUTH2_CLIENT_ID = "precision_fda"
 elsif ENV["DNANEXUS_BACKEND"] == "production"
-  OAUTH2_REDIRECT_URI = "https://precision.fda.gov/return_from_login"
-  OAUTH2_CLIENT_ID = "precision_fda_gov"
+
 else
   OAUTH2_REDIRECT_URI = "https://precisionfda-staging.dnanexus.com/return_from_login"
   OAUTH2_CLIENT_ID = "precision_fda_gov"
@@ -24,17 +23,6 @@ if ENV["DNANEXUS_BACKEND"] == "production"
   CONSISTENCY_DISCUSSION_ID = 1
   TRUTH_DISCUSSION_ID = 6
   # Hard-code uid for NA12878-NISTv2.19 for feedback link
-  NIST_VCF_UID = "file-Bk50V4Q0qVb65P0v2VPbfYPZ"
-  COMPARATOR_V1_APP_ID = "app-BqB9XZ8006ZZ2g5KzGXP3fpq"
-else
-  DNANEXUS_AUTHSERVER_URI = "https://stagingauth.dnanexus.com/"
-  DNANEXUS_APISERVER_URI = "https://stagingapi.dnanexus.com/"
-  DNANEXUS_PLATFORM_URI = "https://staging.dnanexus.com/"
-  CONSISTENCY_DISCUSSION_ID = 1
-  TRUTH_DISCUSSION_ID = 4 # TODO: Update this to the discussion id of challenge
-  # Hard-code uid for NA12878-NISTv2.19 for feedback link
-  NIST_VCF_UID = "file-Bk0kjkQ0ZP01x1KJqQyqJ7yB"
-  COMPARATOR_V1_APP_ID = "app-F1qFJ7j0F5GjY9P362yQF2vX"
 end
 
 APPKIT_TGZ = ENV["APPKIT_TGZ"]
